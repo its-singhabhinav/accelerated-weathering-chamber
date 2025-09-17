@@ -2,7 +2,7 @@
 
 > A documentation‑first repository for an Accelerated Weathering Chamber that simulates UV radiation, temperature and humidity to study material degradation. Based on a Ramaiah Institute of Technology product design project (EEL‑48).
 
-![Hero](docs/assets/hero.png)
+
 
 ---
 
@@ -147,41 +147,3 @@ This repository’s documentation is based on an academic project report; credit
 - Original student authors & faculty coordinators (listed in report)
 - Standards: ASTM G154 / ISO 4892 family
 
----
-
-## 🚀 Quick Start (for contributors)
-
-```bash
-# 1) Clone
-git clone https://github.com/<your-username>/accelerated-weathering-chamber.git
-cd accelerated-weathering-chamber
-
-# 2) Add the PDF and images
-mkdir -p report images docs/assets
-# (Place AWC_Report.pdf in report/ and any images in images/ or docs/assets/)
-
-# 3) Build the docs site locally (optional; just Markdown)
-# Open docs/index.md in your editor and preview
-
-# 4) Commit
-git add .
-git commit -m "Initial commit: AWC documentation, firmware, and repo layout"
-git push -u origin main
-```
-
----
-
-## 🌐 Publish Docs with GitHub Pages
-
-1. Copy this README to `docs/index.md` (already included).  
-2. On GitHub: **Settings → Pages → Build and deployment → Source: Deploy from a branch**  
-   - **Branch:** `main` · **Folder:** `/docs` → **Save**  
-3. Your site will be live at: `https://<your-username>.github.io/<repo-name>/`
-
----
-
-### Maintainer Notes
-
-- Use issues for tasks (firmware refactor, PCB rev, UI improvements).
-- Add a `CHANGELOG.md` for releases.
-- Large CAD or media → consider Git LFS.
