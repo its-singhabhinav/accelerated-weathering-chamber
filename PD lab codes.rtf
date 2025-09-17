@@ -1,0 +1,566 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang1033{\fonttbl{\f0\fnil\fcharset0 Times New Roman;}}
+{\*\generator Riched20 10.0.19041}\viewkind4\uc1 
+\pard\sa200\sl276\slmult1\b\f0\fs28\lang9 1 #include <Keypad.h>\par
+#include <Wire.h>\par
+#include <dht.h>\par
+#include <LiquidCrystal_I2C.h>\par
+\par
+LiquidCrystal_I2C lcd(0x27, 16, 2);\par
+#define dht_dpin A0\par
+dht DHT;\par
+\par
+// Define pins\par
+const int led_pin = 13;\par
+const int uv_pin = 50;\par
+const int htr_pin = 51;\par
+const int cool_pin = 52;\par
+const int hum1_pin = 48;\par
+const int hum2_pin = 49;\par
+\par
+// Keypad configuration\par
+const byte ROWS = 4;\par
+const byte COLS = 4;\par
+const short max_num = 4;\par
+\par
+char hexaKeys[ROWS][COLS] = \{\par
+  \{'1', '2', '3', 'A'\},\par
+  \{'4', '5', '6', 'B'\},\par
+  \{'7', '8', '9', 'C'\},\par
+  \{'*', '0', '#', 'D'\}\par
+\};\par
+\par
+byte rowPins[ROWS] = \{9, 8, 7, 6\};\par
+byte colPins[COLS] = \{5, 4, 3, 2\};\par
+\par
+Keypad customKeypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);\par
+\par
+// Global variables\par
+short day_dur = 1;\par
+short no_cyc = 1, tor_dur = 1, op_dur = 1, cyc_count = 0;\par
+bool cyc_flag = 0;\par
+unsigned int t1;\par
+short sec_10;\par
+short t_min;\par
+bool day_flag;\par
+bool tor_flag;\par
+char key;\par
+short set_hum;\par
+short set_temp;\par
+short cur_hum;\par
+short cur_temp;\par
+const short temp_hyst = 2; // Hysteresis for temperature control\par
+const short hum_hyst = 5;  // Hysteresis for humidity control\par
+\par
+void setup() \{\par
+  delay(100);\par
+  Serial.begin(9600);\par
+  lcd.init();\par
+  lcd.backlight();\par
+  lcd.begin(16, 2);\par
+  lcd.setCursor(0, 0);\par
+  lcd.print("Env Cycle MSRIT");\par
+  lcd.setCursor(0, 1);\par
+  lcd.print("Version 1.1 ");\par
+  pinMode(hum1_pin, OUTPUT);\par
+  pinMode(hum2_pin, OUTPUT);\par
+  pinMode(uv_pin, OUTPUT);\par
+  pinMode(htr_pin, OUTPUT);\par
+  pinMode(cool_pin, OUTPUT);\par
+  digitalWrite(hum1_pin, LOW);\par
+  digitalWrite(hum2_pin, LOW);\par
+  digitalWrite(uv_pin, LOW);\par
+  digitalWrite(htr_pin, LOW);\par
+  digitalWrite(cool_pin, LOW);\par
+  delay(2000);\par
+\}\par
+\par
+void loop() \{\par
+  if (cyc_flag) \{\par
+    manageCycle();\par
+  \}\par
+  \par
+  key = customKeypad.getKey();\par
+  if (key) \{\par
+    handleKeyPress(key);\par
+  \}\par
+\par
+  delay(100);\par
+\}\par
+\par
+void manageCycle() \{\par
+  if ((millis() - t1) > 10000) \{\par
+    sec_10++;\par
+    lcd.print(".");\par
+    if (sec_10 == 6) \{\par
+      t_min++;\par
+      sec_10 = 0;\par
+      lcd.setCursor(0, 1);\par
+      lcd.print(String(t_min));\par
+      updateSensorReadings();\par
+    \}\par
+    updateSensorReadings();\par
+    controlTemperatureAndHumidity();\par
+  \}\par
+  handleCycleTransition();\par
+\}\par
+\par
+void updateSensorReadings() \{\par
+  DHT.read11(dht_dpin);\par
+  cur_temp = DHT.temperature;\par
+  cur_hum = DHT.humidity;\par
+  Serial.print("Current humidity = ");\par
+  Serial.print(cur_hum);\par
+  Serial.print("%  ");\par
+  Serial.print("temperature = ");\par
+  Serial.print(cur_temp);\par
+  Serial.println("C  ");\par
+  lcd.setCursor(5, 1);\par
+  lcd.print(String(cur_temp));\par
+  lcd.setCursor(10, 1);\par
+  lcd.print(String(cur_hum));\par
+\}\par
+\par
+void controlTemperatureAndHumidity() \{\par
+  if (day_flag) \{\par
+    controlDayCycle();\par
+  \} else if (tor_flag) \{\par
+    controlNightCycle();\par
+  \}\par
+\}\par
+\par
+void controlDayCycle() \{\par
+  if (cur_temp > set_temp + temp_hyst) \{\par
+    digitalWrite(uv_pin, HIGH);\par
+    digitalWrite(htr_pin, LOW);\par
+    digitalWrite(cool_pin, HIGH);\par
+  \} else if (cur_temp < set_temp - temp_hyst) \{\par
+    digitalWrite(uv_pin, HIGH);\par
+    digitalWrite(htr_pin, HIGH);\par
+    digitalWrite(cool_pin, LOW);\par
+  \} else \{\par
+    digitalWrite(uv_pin, HIGH);\par
+    digitalWrite(htr_pin, LOW);\par
+    digitalWrite(cool_pin, LOW);\par
+  \}\par
+\par
+  if (cur_hum > set_hum + hum_hyst) \{\par
+    digitalWrite(hum1_pin, LOW);\par
+    digitalWrite(hum2_pin, LOW);\par
+    digitalWrite(uv_pin, HIGH);\par
+  \} else if (cur_hum < set_hum - hum_hyst) \{\par
+    digitalWrite(hum1_pin, HIGH);\par
+    digitalWrite(hum2_pin, HIGH);\par
+    digitalWrite(uv_pin, HIGH);\par
+  \} else \{\par
+    digitalWrite(hum1_pin, LOW);\par
+    digitalWrite(hum2_pin, LOW);\par
+    digitalWrite(uv_pin, HIGH);\par
+  \}\par
+\}\par
+\par
+void controlNightCycle() \{\par
+  if (cur_temp > set_temp + temp_hyst) \{\par
+    digitalWrite(uv_pin, LOW);\par
+    digitalWrite(htr_pin, LOW);\par
+    digitalWrite(cool_pin, HIGH);\par
+  \} else if (cur_temp < set_temp - temp_hyst) \{\par
+    digitalWrite(uv_pin, LOW);\par
+    digitalWrite(htr_pin, HIGH);\par
+    digitalWrite(cool_pin, LOW);\par
+  \} else \{\par
+    digitalWrite(uv_pin, LOW);\par
+    digitalWrite(htr_pin, LOW);\par
+    digitalWrite(cool_pin, LOW);\par
+  \}\par
+\par
+  if (cur_hum > set_hum + hum_hyst) \{\par
+    digitalWrite(hum1_pin, LOW);\par
+    digitalWrite(hum2_pin, LOW);\par
+    digitalWrite(uv_pin, LOW);\par
+  \} else if (cur_hum < set_hum - hum_hyst) \{\par
+    digitalWrite(hum1_pin, HIGH);\par
+    digitalWrite(hum2_pin, HIGH);\par
+    digitalWrite(uv_pin, LOW);\par
+  \} else \{\par
+    digitalWrite(hum1_pin, LOW);\par
+    digitalWrite(hum2_pin, LOW);\par
+    digitalWrite(uv_pin, LOW);\par
+  \}\par
+\}\par
+\par
+void handleCycleTransition() \{\par
+  if (day_flag && t_min >= day_dur) \{\par
+    transitionToNight();\par
+  \} else if (tor_flag && t_min >= tor_dur) \{\par
+    transitionToDay();\par
+  \}\par
+\}\par
+\par
+void transitionToNight() \{\par
+  digitalWrite(htr_pin, LOW);\par
+  digitalWrite(cool_pin, LOW);\par
+  day_flag = 0;\par
+  tor_flag = 1;\par
+  t_min = 0;\par
+  lcd.clear();\par
+  lcd.print("Day Cycle over");\par
+  delay(1000);\par
+  lcd.clear();\par
+  lcd.print("Dark Cycle-");\par
+  lcd.print(String(no_cyc));\par
+  lcd.setCursor(0, 1);\par
+\}\par
+\par
+void transitionToDay() \{\par
+  lcd.clear();\par
+  lcd.print("Dark Cycle over");\par
+  delay(1000);\par
+  lcd.setCursor(0, 1);\par
+  lcd.clear();\par
+  lcd.print("Day Cycle-");\par
+  lcd.print(String(no_cyc));\par
+  day_flag = 0;\par
+  tor_flag = 0;\par
+  t_min = 0;\par
+  delay(500);\par
+  if (no_cyc > 1) \{\par
+    no_cyc--;\par
+    day_flag = 1;\par
+    tor_flag = 1;\par
+    lcd.clear();\par
+  \} else \{\par
+    endAllCycles();\par
+  \}\par
+\}\par
+\par
+void endAllCycles() \{\par
+  cyc_flag = 0;\par
+  lcd.clear();\par
+  digitalWrite(htr_pin, LOW);\par
+  digitalWrite(cool_pin, LOW);\par
+  digitalWrite(uv_pin, LOW);\par
+  digitalWrite(hum1_pin, LOW);\par
+  digitalWrite(hum2_pin, LOW);\par
+  lcd.print("ALL Cycle over");\par
+  lcd.setCursor(0, 1);\par
+  lcd.print("Pres * for Start");\par
+\}\par
+\par
+void handleKeyPress(char key) \{\par
+  Serial.println(key);\par
+  lcd.print(String(key));\par
+\par
+  if (key == 'A') \{\par
+    updateSensorReadings();\par
+  \}\par
+\par
+  if (key == '*') \{\par
+    configureCycle();\par
+  \}\par
+\}\par
+\par
+void configureCycle() \{\par
+  lcd.clear();\par
+  lcd.print("Enter Day Dur:");\par
+  Serial.println("New Cycle configuration\\n");\par
+  Serial.println("Enter duration for Day Cycle in min: ");\par
+\par
+\par
+\par
+2 #include <Keypad.h>\par
+#include <Wire.h>\par
+#include <dht.h>\par
+#include <LiquidCrystal_I2C.h>\par
+\par
+LiquidCrystal_I2C lcd(0x27, 16, 2);\par
+#define dht_dpin A0\par
+dht DHT;\par
+\par
+const int led_pin = 13;\par
+const int uv_pin = 50;\par
+const int htr_pin = 51;\par
+const int cool_pin = 52;\par
+const int hum1_pin = 48;\par
+const int hum2_pin = 49;\par
+\par
+const byte ROWS = 4;\par
+const byte COLS = 4;\par
+const short max_num = 4;\par
+\par
+char hexaKeys[ROWS][COLS] = \{\par
+  \{'1', '2', '3', 'A'\},\par
+  \{'4', '5', '6', 'B'\},\par
+  \{'7', '8', '9', 'C'\},\par
+  \{'*', '0', '#', 'D'\}\par
+\};\par
+\par
+byte rowPins[ROWS] = \{9, 8, 7, 6\};\par
+byte colPins[COLS] = \{5, 4, 3, 2\};\par
+\par
+Keypad customKeypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);\par
+\par
+short day_dur = 1;\par
+short no_cyc = 1, tor_dur = 1, op_dur = 1, cyc_count = 0;\par
+bool cyc_flag = 0;\par
+unsigned int t1;\par
+short sec_10;\par
+short t_min;\par
+bool day_flag;\par
+bool tor_flag;\par
+char key;\par
+short set_hum;\par
+short set_temp;\par
+short cur_hum;\par
+short cur_temp;\par
+const short temp_hyst = 2; // Hysteresis for temperature control\par
+const short hum_hyst = 5;  // Hysteresis for humidity control\par
+\par
+void setup() \{\par
+  delay(100);\par
+  Serial.begin(9600);\par
+  lcd.init();\par
+  lcd.backlight();\par
+  lcd.begin(16, 2);\par
+  lcd.setCursor(0, 0);\par
+  lcd.print("Env Cycle MSRIT");\par
+  lcd.setCursor(0, 1);\par
+  lcd.print("Version 1.1 ");\par
+  \par
+  pinMode(hum1_pin, OUTPUT);\par
+  pinMode(hum2_pin, OUTPUT);\par
+  pinMode(uv_pin, OUTPUT);\par
+  pinMode(htr_pin, OUTPUT);\par
+  pinMode(cool_pin, OUTPUT);\par
+  \par
+  digitalWrite(hum1_pin, LOW);\par
+  digitalWrite(hum2_pin, LOW);\par
+  digitalWrite(uv_pin, LOW);\par
+  digitalWrite(htr_pin, LOW);\par
+  digitalWrite(cool_pin, LOW);\par
+  \par
+  delay(2000);\par
+\}\par
+\par
+void loop() \{\par
+  if (cyc_flag) \{\par
+    manageCycle();\par
+  \}\par
+  \par
+  key = customKeypad.getKey();\par
+  if (key) \{\par
+    handleKeyPress(key);\par
+  \}\par
+\par
+  delay(100);\par
+\}\par
+\par
+void manageCycle() \{\par
+  if ((millis() - t1) > 10000) \{\par
+    sec_10++;\par
+    lcd.print(".");\par
+    if (sec_10 == 6) \{\par
+      t_min++;\par
+      sec_10 = 0;\par
+      lcd.setCursor(0, 1);\par
+      lcd.print(String(t_min));\par
+      updateSensorReadings();\par
+    \}\par
+    updateSensorReadings();\par
+    controlTemperatureAndHumidity();\par
+  \}\par
+  handleCycleTransition();\par
+\}\par
+\par
+void updateSensorReadings() \{\par
+  DHT.read11(dht_dpin);\par
+  cur_temp = DHT.temperature;\par
+  cur_hum = DHT.humidity;\par
+  Serial.print("Current humidity = ");\par
+  Serial.print(cur_hum);\par
+  Serial.print("%  ");\par
+  Serial.print("temperature = ");\par
+  Serial.print(cur_temp);\par
+  Serial.println("C  ");\par
+  lcd.setCursor(5, 1);\par
+  lcd.print(String(cur_temp));\par
+  lcd.setCursor(10, 1);\par
+  lcd.print(String(cur_hum));\par
+\}\par
+\par
+void controlTemperatureAndHumidity() \{\par
+  if (day_flag) \{\par
+    controlDayCycle();\par
+  \} else if (tor_flag) \{\par
+    controlNightCycle();\par
+  \}\par
+\}\par
+\par
+void controlDayCycle() \{\par
+  if (cur_temp > set_temp + temp_hyst) \{\par
+    digitalWrite(uv_pin, HIGH);\par
+    digitalWrite(htr_pin, LOW);\par
+    digitalWrite(cool_pin, HIGH);\par
+  \} else if (cur_temp < set_temp - temp_hyst) \{\par
+    digitalWrite(uv_pin, HIGH);\par
+    digitalWrite(htr_pin, HIGH);\par
+    digitalWrite(cool_pin, LOW);\par
+  \} else \{\par
+    digitalWrite(uv_pin, HIGH);\par
+    digitalWrite(htr_pin, LOW);\par
+    digitalWrite(cool_pin, LOW);\par
+  \}\par
+\par
+  if (cur_hum > set_hum + hum_hyst) \{\par
+    digitalWrite(hum1_pin, LOW);\par
+    digitalWrite(hum2_pin, LOW);\par
+    digitalWrite(uv_pin, HIGH);\par
+  \} else if (cur_hum < set_hum - hum_hyst) \{\par
+    digitalWrite(hum1_pin, HIGH);\par
+    digitalWrite(hum2_pin, HIGH);\par
+    digitalWrite(uv_pin, HIGH);\par
+  \} else \{\par
+    digitalWrite(hum1_pin, LOW);\par
+    digitalWrite(hum2_pin, LOW);\par
+    digitalWrite(uv_pin, HIGH);\par
+  \}\par
+\}\par
+\par
+void controlNightCycle() \{\par
+  if (cur_temp > set_temp + temp_hyst) \{\par
+    digitalWrite(uv_pin, LOW);\par
+    digitalWrite(htr_pin, LOW);\par
+    digitalWrite(cool_pin, HIGH);\par
+  \} else if (cur_temp < set_temp - temp_hyst) \{\par
+    digitalWrite(uv_pin, LOW);\par
+    digitalWrite(htr_pin, HIGH);\par
+    digitalWrite(cool_pin, LOW);\par
+  \} else \{\par
+    digitalWrite(uv_pin, LOW);\par
+    digitalWrite\par
+\par
+\par
+3-#include <Keypad.h>\par
+#include <Wire.h>\par
+#include <dht.h>\par
+#include <LiquidCrystal_I2C.h>\par
+#include <SD.h> // For data logging (optional)\par
+\par
+#define DHTPIN A0\par
+#define DHTTYPE DHT11 // Update for your sensor type\par
+\par
+const int LCD_ADDR = 0x27; // I2C address of the LCD\par
+const int ROWS = 4;\par
+const int COLS = 4;\par
+\par
+char hexaKeys[ROWS][COLS] = \{\par
+  \{'1', '2', '3', 'A'\},\par
+  \{'4', '5', '6', 'B'\},\par
+  \{'7', '8', '9', 'C'\},\par
+  \{'*', '0', '#', 'D'\}\par
+\};\par
+\par
+byte rowPins[ROWS] = \{9, 8, 7, 6\};\par
+byte colPins[COLS] = \{5, 4, 3, 2\};\par
+\par
+// Keypad object and variables\par
+Keypad customKeypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);\par
+char pressedKey;\par
+bool newKeyPress = false;\par
+\par
+// LCD object\par
+LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);\par
+\par
+// Sensor variables\par
+DHT dht(DHTPIN, DHTTYPE);\par
+float currentTemp, currentHum;\par
+\par
+// Control variables (hysteresis can be adjusted)\par
+const float tempHyst = 2.0;  // Temperature hysteresis\par
+const float humHyst = 5.0;  // Humidity hysteresis\par
+float setTemp = 25.0;        // Initial setpoint temperature\par
+float setHum = 60.0;        // Initial setpoint humidity\par
+\par
+// Control outputs (adjust pin assignments based on your hardware)\par
+const int heaterPin = 10;\par
+const int coolerPin = 11;\par
+const int humidifier1Pin = 12;\par
+const int humidifier2Pin = 13;\par
+const int uvLampPin = 14;\par
+\par
+// Safety features (add sensors and thresholds as needed)\par
+const float maxTemp = 50.0;  // Maximum allowed temperature\par
+const int overTempPin = A1;  // Analog pin for over-temperature sensor\par
+\par
+// Flag variables for control logic\par
+bool cycleRunning = false;\par
+bool dayCycle = true;  // Start in day cycle by default\par
+bool nightCycle = false;\par
+\par
+// Data logging variables (optional)\par
+const int chipSelect = 4;\par
+File dataFile;\par
+\par
+void setup() \{\par
+  Serial.begin(9600);\par
+  lcd.init();\par
+  lcd.backlight();\par
+  lcd.begin(16, 2);\par
+\par
+  pinMode(heaterPin, OUTPUT);\par
+  pinMode(coolerPin, OUTPUT);\par
+  pinMode(humidifier1Pin, OUTPUT);\par
+  pinMode(humidifier2Pin, OUTPUT);\par
+  pinMode(uvLampPin, OUTPUT);\par
+  pinMode(overTempPin, INPUT);\par
+\par
+  digitalWrite(heaterPin, LOW);\par
+  digitalWrite(coolerPin, LOW);\par
+  digitalWrite(humidifier1Pin, LOW);\par
+  digitalWrite(humidifier2Pin, LOW);\par
+  digitalWrite(uvLampPin, LOW);\par
+\par
+  // Initialize SD card for data logging (optional)\par
+  if (SD.begin(chipSelect)) \{\par
+    Serial.println("SD card initialization successful");\par
+  \} else \{\par
+    Serial.println("SD card initialization failed!");\par
+  \}\par
+\par
+  dht.begin();\par
+  delay(2000);\par
+\}\par
+\par
+void loop() \{\par
+  // Read keypad input\par
+  pressedKey = customKeypad.getKey();\par
+  if (pressedKey) \{\par
+    newKeyPress = true;\par
+  \}\par
+\par
+  // Update sensor readings and display on LCD\par
+  updateSensorReadings();\par
+\par
+  // Handle user input (implement in handleKeyPress function)\par
+  if (newKeyPress) \{\par
+    handleKeyPress(pressedKey);\par
+    newKeyPress = false;\par
+  \}\par
+\par
+  // Control logic based on cycle state and sensor readings\par
+  if (cycleRunning) \{\par
+    controlChamber();\par
+    displayStatus(); // Update LCD with control outputs and safety status\par
+  \}\par
+\par
+  delay(100);\par
+\}\par
+\par
+void updateSensorReadings() \{\par
+  float temp = dht.readTemperature();\par
+  float hum = dht.readHumidity();\par
+\par
+  // Error handling for sensor readings (optional)\par
+  if (isnan(temp) || isnan(hum)) \{\par
+    Serial.println("Failed to read from\par
+}
+ 
